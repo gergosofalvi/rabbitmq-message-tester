@@ -1,0 +1,23 @@
+version: '3'
+services:
+  rabbitmq-test:
+    image: "rabbitmq:3-management"
+    container_name: "rabbitmq-test"
+    ports:
+      - "15679:15672"
+      - "5679:5672"
+    environment:
+      RABBITMQ_DEFAULT_USER: user
+      RABBITMQ_DEFAULT_PASS: password
+
+  app-rabbitmq-test:
+    container_name: "app-rabbitmq-test"
+    build: .
+    ports:
+      - "3999:3999"
+    environment:
+      - RABBITMQ_URL=amqp://user:password@rabbitmq-test:5672
+    volumes:
+      - .:/usr/src/app
+    depends_on:
+      - rabbitmq-test

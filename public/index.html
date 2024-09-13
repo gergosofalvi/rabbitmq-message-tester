@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RabbitMQ Tester</title>
+    <!-- Materialize CSS -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
+    <style>
+        .status {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        .processing {
+            background-color: yellow;
+        }
+        .ack {
+            background-color: green;
+        }
+        .nack {
+            background-color: red;
+        }
+        #history-table {
+            margin-top: 20px;
+            width: 100%;
+        }
+        #consume-status {
+            margin-top: 10px;
+            color: green;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="center-align">RabbitMQ Message Sender & Consumer</h1>
+
+        <div class="row">
+            <div class="col s12">
+                <h4>Send Message</h4>
+                <form id="send-form" class="row">
+                    <div class="input-field col s6">
+                        <input type="text" id="queue" name="queue" required>
+                        <label for="queue">Queue Name</label>
+                    </div>
+                    <div class="input-field col s6">
+                        <input type="text" id="message" name="message" required>
+                        <label for="message">Message Content</label>
+                    </div>
+                    <button type="submit" class="btn waves-effect waves-light">Send</button>
+                </form>
+                <p id="send-result"></p>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col s12">
+                <h4>Consume Message</h4>
+                <form id="consume-form" class="row">
+                    <div class="input-field col s6">
+                        <input type="text" id="consume-queue" name="consume-queue" required>
+                        <label for="consume-queue">Queue Name</label>
+                    </div>
+                    <div class="input-field col s3">
+                        <label>
+                            <input type="checkbox" id="auto-ack" name="auto-ack">
+                            <span>Auto Ack</span>
+                        </label>
+                    </div>
+                    <div class="input-field col s3">
+                        <input type="number" id="delay" name="delay" min="0" value="1000" required>
+                        <label for="delay">Response Delay (ms)</label>
+                    </div>
+                    <div class="input-field col s6">
+                        <select id="response-type" name="response-type">
+                            <option value="ack" selected>Ack</option>
+                            <option value="nack">Nack</option>
+                            <option value="nack-requeue">Nack with Requeue</option>
+                        </select>
+                        <label for="response-type">Response Type</label>
+                    </div>
+                    <button type="submit" id="consume-btn" class="btn waves-effect waves-light">Consume</button>
+                    <p id="consume-status" style="display:none;">Consume running...</p>
+                </form>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col s12">
+                <h4>Message Processing History</h4>
+                <button id="clear-history-btn" class="btn red waves-effect waves-light">Clear History</button>
+                <table id="history-table" class="striped">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Status</th>
+                            <th>Queue</th>
+                            <th>Message</th>
+                            <th>Response</th>
+                            <th>Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Materialize JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+
+    <script>
+        // Initialize Materialize components
+        document.addEventListener('DOMContentLoaded', function() {
+            var elems = document.querySelectorAll('select');
+            M.FormSelect.init(elems);
+        });
+
+        let isConsuming = false;
+
+        document.getElementById('send-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const queue = document.getElementById('queue').value;
+            const message = document.getElementById('message').value;
+
+            const response = await fetch('/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ queue, message })
+            });
+            const result = await response.json();
+            document.getElementById('send-result').innerText = result.success 
+                ? result.message 
+                : `Error: ${result.details}`;
+        });
+
+        document.getElementById('consume-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            
+            if (isConsuming) {
+                // If already consuming, stop the current subscription
+                const response = await fetch('/stop-consume', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    isConsuming = false;
+                    document.getElementById('consume-btn').textContent = 'Consume';
+                    document.getElementById('consume-status').style.display = 'none';
+                } else {
+                    alert(`Error: ${result.details}`);
+                }
+                return;
+            }
+
+            const queue = document.getElementById('consume-queue').value;
+            const autoAck = document.getElementById('auto-ack').checked;
+            const delay = document.getElementById('delay').value;
+            const responseType = document.getElementById('response-type').value;
+
+            const response = await fetch('/consume', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ queue, autoAck, delay, responseType })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                isConsuming = true;
+                document.getElementById('consume-btn').textContent = 'Stop Consume';
+                document.getElementById('consume-status').style.display = 'block';
+            } else {
+                alert(`Error: ${result.details}`);
+            }
+        });
+
+        // Update the message processing history every second
+        setInterval(async () => {
+            const response = await fetch('/processed-messages');
+            const processedMessages = await response.json();
+
+            const historyBody = document.getElementById('history-body');
+            historyBody.innerHTML = ''; // Clear the existing rows
+
+            processedMessages.reverse().forEach((message) => { // Reverse order
+                const row = document.createElement('tr');
+
+                row.innerHTML = `
+                    <td>${message.id}</td>
+                    <td><span class="status ${message.status === 'processing' ? 'processing' : message.responseType === 'ack' ? 'ack' : 'nack'}"></span> ${message.status}</td>
+                    <td>${message.queue}</td>
+                    <td>${message.messageContent}</td>
+                    <td>${message.responseType || 'N/A'}</td>
+                    <td>${message.timestamp}</td>
+                `;
+
+                historyBody.appendChild(row);
+            });
+        }, 1000); // Update every 1 second
+
+        // Clear message history
+        document.getElementById('clear-history-btn').addEventListener('click', async () => {
+            const response = await fetch('/clear-history', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            const result = await response.json();
+            if (result.success) {
+                alert('History cleared');
+            }
+        });
+    </script>
+</body>
+</html>
+
