@@ -48,7 +48,7 @@ These instructions will help you set up the project and run it locally on your m
 
    You can also access the RabbitMQ Management Console at:
    ```
-   http://localhost:15672
+   http://localhost:15679
    ```
    Use the following credentials to log in:
    - **Username**: `user`
